@@ -1,0 +1,6 @@
+{
+  "name": "CBT Try Out TKA Matematika SMK - SMKN 2 Gorontalo",
+  "description": "Aplikasi CBT Try Out TKA Matematika SMK Negeri 2 Gorontalo dengan integrasi Google Spreadsheet, anti-cheat canggih, pemantauan real-time, dan optimasi mobile.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
