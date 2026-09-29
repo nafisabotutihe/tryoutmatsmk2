@@ -100,6 +100,9 @@ export const ExamView: React.FC<ExamViewProps> = ({ student, onFinishExam }) => 
     });
 
     setLatestViolationAlert(reason);
+    setTimeout(() => {
+      setLatestViolationAlert((curr) => (curr === reason ? null : curr));
+    }, 6000);
 
     // Send realtime violation event
     SheetService.logViolationRealtime(newViolation, {
@@ -285,6 +288,22 @@ export const ExamView: React.FC<ExamViewProps> = ({ student, onFinishExam }) => 
     }
   };
 
+  // Evaluate if a specific question is answered
+  const isQuestionAnswered = (q: Question) => {
+    const a = answers[q.no];
+    if (a === undefined || a === null) return false;
+    if (q.type === 'pg') return typeof a === 'number';
+    if (q.type === 'mcma') return Array.isArray(a) && (a as number[]).length > 0;
+    if (q.type === 'bs') {
+      const bsArr = a as boolean[];
+      return Array.isArray(bsArr) && bsArr.length === q.st.length && bsArr.every((x) => typeof x === 'boolean');
+    }
+    return false;
+  };
+
+  const answeredCount = QUESTIONS_DATA.filter((q) => isQuestionAnswered(q)).length;
+  const allAnswered = answeredCount === QUESTIONS_DATA.length;
+
   // Score Calculation (Internal proctor only - not exposed to student)
   const calculateScore = () => {
     let earned = 0;
@@ -313,6 +332,14 @@ export const ExamView: React.FC<ExamViewProps> = ({ student, onFinishExam }) => 
   // Handle Exam Submission
   const handleFinalSubmit = async (reason = 'Dikumpulkan oleh Peserta') => {
     if (endedRef.current || isSubmitting) return;
+
+    // Validasi ketat: Peserta TIDAK BISA menyelesaikan sebelum seluruh soal dijawab!
+    const isAutoTimer = reason.includes('Waktu Ujian Habis');
+    if (!isAutoTimer && answeredCount < QUESTIONS_DATA.length) {
+      alert(`Anda belum dapat menyelesaikan ujian! Masih ada ${QUESTIONS_DATA.length - answeredCount} soal yang belum dijawab. Seluruh 25 nomor soal wajib diisi.`);
+      return;
+    }
+
     endedRef.current = true;
     setIsSubmitting(true);
 
@@ -326,7 +353,7 @@ export const ExamView: React.FC<ExamViewProps> = ({ student, onFinishExam }) => 
     }
 
     const { earned, finalScore } = calculateScore();
-    const answeredCount = Object.keys(answersRef.current).length;
+    const finalAnswered = answeredCount;
 
     const submission: ExamSubmission = {
       id: 'sub_' + student.nisn + '_' + Date.now(),
@@ -338,7 +365,7 @@ export const ExamView: React.FC<ExamViewProps> = ({ student, onFinishExam }) => 
       score: finalScore,
       rawEarned: earned,
       totalQuestions: QUESTIONS_DATA.length,
-      answeredCount,
+      answeredCount: finalAnswered,
       answers: answersRef.current,
       violations: violationsRef.current,
       violationCount: violationsRef.current.length,
@@ -416,22 +443,6 @@ export const ExamView: React.FC<ExamViewProps> = ({ student, onFinishExam }) => 
   };
 
   const currentQ = QUESTIONS_DATA[cur];
-  const isQuestionAnswered = (q: Question) => {
-    const a = answers[q.no];
-    if (a === undefined || a === null) return false;
-    if (q.type === 'pg') return true;
-    if (q.type === 'mcma') return (a as number[]).length > 0;
-    if (q.type === 'bs') {
-      const bsArr = a as boolean[];
-      return bsArr && bsArr.length === q.st.length && bsArr.every((x) => x !== undefined);
-    }
-    return false;
-  };
-
-  const answeredCount = Object.keys(answers).filter((noStr) => {
-    const q = QUESTIONS_DATA.find((item) => item.no === Number(noStr));
-    return q ? isQuestionAnswered(q) : false;
-  }).length;
 
   const isLowTime = timeLeft <= 300; // 5 minutes remaining
 
@@ -460,8 +471,10 @@ export const ExamView: React.FC<ExamViewProps> = ({ student, onFinishExam }) => 
             <p className="text-slate-200 mt-1">
               Terdeteksi: <strong className="text-white">{latestViolationAlert}</strong>.
             </p>
-            <p className="text-[10px] text-rose-300/80 mt-0.5">
-              Insiden ini telah dicatat ke log Google Spreadsheet &amp; Pengawas Ruang.
+            <p className="text-[10px] text-rose-300/90 mt-0.5">
+              {violations.length >= 3 
+                ? 'Soal TIDAK dikunci (Anda tetap dapat melanjutkan), namun status waspada telah aktif di Dashboard Pengawas.'
+                : 'Insiden ini telah dicatat ke log Google Spreadsheet & Pengawas Ruang.'}
             </p>
           </div>
           <button
@@ -791,11 +804,26 @@ export const ExamView: React.FC<ExamViewProps> = ({ student, onFinishExam }) => 
           ) : (
             <button
               type="button"
-              onClick={() => setShowConfirmSubmit(true)}
-              className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 transition"
+              disabled={!allAnswered}
+              onClick={() => {
+                if (!allAnswered) {
+                  alert(`Anda belum dapat menyelesaikan ujian! Masih ada ${QUESTIONS_DATA.length - answeredCount} nomor soal yang belum dijawab. Seluruh 25 soal wajib diisi.`);
+                  setIsDrawerOpen(true);
+                  return;
+                }
+                setShowConfirmSubmit(true);
+              }}
+              className={`py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition ${
+                !allAnswered
+                  ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed opacity-80'
+                  : 'bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white shadow-lg shadow-emerald-600/30'
+              }`}
+              title={!allAnswered ? 'Seluruh 25 nomor soal wajib dijawab terlebih dahulu' : 'Selesai & Kumpulkan'}
             >
               <Send className="w-4 h-4" />
-              <span>Selesai &amp; Kumpulkan</span>
+              <span>
+                {!allAnswered ? `Lengkapi Soal (${answeredCount}/25)` : 'Selesai & Kumpulkan'}
+              </span>
             </button>
           )}
         </div>
@@ -865,17 +893,35 @@ export const ExamView: React.FC<ExamViewProps> = ({ student, onFinishExam }) => 
             </div>
 
             {/* Drawer Footer */}
-            <div className="pt-3 border-t border-slate-800 flex gap-2">
+            <div className="pt-3 border-t border-slate-800 flex flex-col gap-2">
+              {!allAnswered && (
+                <div className="p-2.5 bg-rose-950/60 border border-rose-500/50 rounded-xl text-rose-300 text-xs flex items-center gap-2">
+                  <AlertOctagon className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>
+                    Masih ada <strong>{QUESTIONS_DATA.length - answeredCount} nomor soal</strong> belum dijawab. Seluruh 25 soal wajib diisi sebelum dapat mengumpulkan ujian.
+                  </span>
+                </div>
+              )}
               <button
                 type="button"
+                disabled={!allAnswered}
                 onClick={() => {
+                  if (!allAnswered) return;
                   setIsDrawerOpen(false);
                   setShowConfirmSubmit(true);
                 }}
-                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20"
+                className={`w-full py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-lg transition ${
+                  !allAnswered
+                    ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20 active:scale-95'
+                }`}
               >
                 <Send className="w-4 h-4" />
-                <span>Kumpulkan Ujian Sekarang</span>
+                <span>
+                  {!allAnswered
+                    ? `Wajib Jawab Semua Soal (${answeredCount}/25)`
+                    : 'Kumpulkan Ujian Sekarang'}
+                </span>
               </button>
             </div>
           </div>
@@ -939,16 +985,20 @@ export const ExamView: React.FC<ExamViewProps> = ({ student, onFinishExam }) => 
               </button>
               <button
                 type="button"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !allAnswered}
                 onClick={() => handleFinalSubmit('Dikumpulkan oleh Peserta')}
-                className="w-1/2 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/20 transition"
+                className={`w-1/2 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition ${
+                  !allAnswered
+                    ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 active:scale-95'
+                }`}
               >
                 {isSubmitting ? (
                   <span>Mengirim...</span>
                 ) : (
                   <>
                     <Send className="w-3.5 h-3.5" />
-                    <span>Ya, Kumpulkan</span>
+                    <span>{!allAnswered ? 'Belum Lengkap' : 'Ya, Kumpulkan'}</span>
                   </>
                 )}
               </button>

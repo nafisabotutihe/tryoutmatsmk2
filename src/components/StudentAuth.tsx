@@ -10,7 +10,8 @@ import {
   Maximize2, 
   Search, 
   UserCheck, 
-  AlertTriangle
+  AlertTriangle,
+  KeyRound
 } from 'lucide-react';
 
 interface StudentAuthProps {
@@ -25,6 +26,7 @@ export const StudentAuth: React.FC<StudentAuthProps> = ({
   const [selectedRombel, setSelectedRombel] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [tokenInput, setTokenInput] = useState<string>('');
   const [agreeRules, setAgreeRules] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
 
@@ -72,6 +74,14 @@ export const StudentAuth: React.FC<StudentAuthProps> = ({
     }
     if (existingSubmission) {
       setErrorMessage('Anda sudah pernah menyelesaikan ujian ini. Duplikasi data tidak diperbolehkan.');
+      return;
+    }
+    if (!tokenInput.trim()) {
+      setErrorMessage('Silakan masukkan Token Ujian yang diberikan oleh Pengawas Ruang.');
+      return;
+    }
+    if (!StorageService.verifyExamToken(tokenInput)) {
+      setErrorMessage('Token Ujian salah atau tidak valid! Silakan periksa kembali atau minta token aktif ke Pengawas Ruang.');
       return;
     }
     if (!agreeRules) {
@@ -291,10 +301,37 @@ export const StudentAuth: React.FC<StudentAuthProps> = ({
                     Ketentuan Sistem Keamanan CBT (Anti-Kecurangan):
                   </div>
                   <ul className="list-disc list-inside text-[11px] text-slate-300 space-y-1 pl-1">
-                    <li>Aplikasi otomatis mengunci dalam mode <strong>Layar Penuh (Fullscreen)</strong>.</li>
-                    <li>Membuka tab baru, pindah aplikasi, atau merekam layar (screen recording) akan <strong>tercatat otomatis</strong> dan dilaporkan langsung ke pengawas serta Google Spreadsheet.</li>
-                    <li>Jawaban tersimpan otomatis setiap detik secara aman di perangkat dan server.</li>
+                    <li>Aplikasi otomatis berjalan dalam mode <strong>Layar Penuh (Fullscreen)</strong>.</li>
+                    <li>Meninggalkan tab, berpindah aplikasi, split screen, atau tangkapan layar akan <strong>tercatat otomatis</strong>.</li>
+                    <li><strong>Jika melanggar 3 kali atau lebih, soal TIDAK AKAN TERKUNCI</strong> (Anda tetap dapat melanjutkan ujian hingga selesai), namun seluruh log pelanggaran tetap terdeteksi &amp; terpantau secara langsung di Dashboard Pengawas.</li>
+                    <li>Jawaban tersimpan otomatis secara real-time di perangkat dan Google Spreadsheet.</li>
                   </ul>
+                </div>
+
+                {/* Input Token Ujian */}
+                <div className="bg-slate-950/90 p-3.5 rounded-xl border border-blue-500/40 space-y-2">
+                  <label className="text-xs font-bold text-blue-300 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <KeyRound className="w-4 h-4 text-blue-400" />
+                      TOKEN UJIAN (Dari Pengawas Ruang)
+                    </span>
+                    <span className="text-[10px] text-amber-400 font-mono font-semibold">Wajib Diisi</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={tokenInput}
+                    onChange={(e) => {
+                      setTokenInput(e.target.value.toUpperCase());
+                      setErrorMessage('');
+                    }}
+                    placeholder="MASUKKAN TOKEN DARI PENGAWAS"
+                    maxLength={16}
+                    autoComplete="off"
+                    className="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-xl text-center text-base sm:text-lg font-mono font-bold tracking-widest text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 uppercase transition"
+                  />
+                  <p className="text-[10px] text-slate-400 text-center">
+                    Minta token kepada pengawas ruang untuk dapat memulai ujian.
+                  </p>
                 </div>
 
                 {/* Agreement Checkbox */}
@@ -325,10 +362,10 @@ export const StudentAuth: React.FC<StudentAuthProps> = ({
         {/* Submit Start Button */}
         <button
           type="button"
-          disabled={!selectedStudent || !!existingSubmission || !agreeRules}
+          disabled={!selectedStudent || !!existingSubmission || !agreeRules || !tokenInput.trim()}
           onClick={handleBegin}
           className={`w-full py-3.5 px-4 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-xl transition active:scale-[0.98] ${
-            !selectedStudent || !!existingSubmission || !agreeRules
+            !selectedStudent || !!existingSubmission || !agreeRules || !tokenInput.trim()
               ? 'bg-slate-800 text-slate-500 border border-slate-700/50 cursor-not-allowed'
               : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-blue-600/30'
           }`}

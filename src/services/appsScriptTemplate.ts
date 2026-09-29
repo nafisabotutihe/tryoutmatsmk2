@@ -81,16 +81,6 @@ function doPost(e) {
       var sheetHasil = ss.getSheetByName("HASIL_UJIAN");
       var sheetLog = ss.getSheetByName("LOG_PELANGGARAN");
 
-      // Cek apakah NISN ini sudah pernah ada untuk mencegah duplikasi baris
-      var existingData = sheetHasil.getDataRange().getValues();
-      var rowIndexToUpdate = -1;
-      for (var i = 1; i < existingData.length; i++) {
-        if (String(existingData[i][1]) === String(data.nisn)) {
-          rowIndexToUpdate = i + 1; // Baris 1-indexed
-          break;
-        }
-      }
-
       var violationsSummary = "";
       if (data.violations && data.violations.length > 0) {
         violationsSummary = data.violations.map(function(v) {
@@ -130,14 +120,11 @@ function doPost(e) {
         "OK"
       ];
 
-      if (rowIndexToUpdate > 0) {
-        // Timpa baris jika sudah ada (mencegah duplikasi data siswa)
-        sheetHasil.getRange(rowIndexToUpdate, 1, 1, rowValues.length).setValues([rowValues]);
-      } else {
-        sheetHasil.appendRow(rowValues);
-      }
+      // PASTIKAN DATA TERSIMPAN DAN TIDAK TERTIMPAH:
+      // Setiap pengumpulan selalu disimpan sebagai baris baru permanen di HASIL_UJIAN
+      sheetHasil.appendRow(rowValues);
 
-      // Update juga di monitoring real-time
+      // Update status terkini di monitoring real-time
       updateRealtimeRow(ss, {
         nisn: data.nisn,
         nipd: data.nipd,
@@ -153,7 +140,7 @@ function doPost(e) {
       success = true;
       return createJsonResponse({
         status: "success",
-        message: "Jawaban berhasil disimpan secara aman ke Google Spreadsheet",
+        message: "Jawaban berhasil disimpan secara permanen ke Google Spreadsheet (tidak tertimpah)",
         nisn: data.nisn,
         nama: data.nama,
         score: data.score
@@ -225,9 +212,80 @@ function updateRealtimeRow(ss, data) {
   }
 }
 
-// Menangani permintaan GET (Untuk test koneksi dari CBT)
+// Menangani permintaan GET (Test koneksi & Sinkronisasi/Download Data Spreadsheet)
 function doGet(e) {
   setupSheets();
+  var params = (e && e.parameter) ? e.parameter : {};
+
+  // Aksi Unduh Data untuk Sinkronisasi Dashboard Pengawas
+  if (params.action === "DOWNLOAD_DATA" || params.action === "SYNC_FETCH" || params.action === "GET_ALL") {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheetHasil = ss.getSheetByName("HASIL_UJIAN");
+    var sheetMon = ss.getSheetByName("MONITORING_REALTIME");
+
+    var submissions = [];
+    if (sheetHasil) {
+      var hData = sheetHasil.getDataRange().getValues();
+      for (var i = 1; i < hData.length; i++) {
+        var row = hData[i];
+        if (row[1]) {
+          var cleanNisn = String(row[1]).replace(/^'/, "");
+          var cleanNipd = String(row[2]).replace(/^'/, "");
+          submissions.push({
+            submittedAt: row[0] ? new Date(row[0]).toISOString() : new Date().toISOString(),
+            nisn: cleanNisn,
+            nipd: cleanNipd,
+            nama: row[3] || "",
+            rombel: row[4] || "",
+            jk: row[5] || "-",
+            score: Number(row[6]) || 0,
+            rawEarned: Number(row[7]) || 0,
+            answeredCount: Number(row[8]) || 25,
+            violationCount: Number(row[9]) || 0,
+            durationUsedSeconds: Number(row[10]) || 0,
+            reason: row[11] || "Selesai",
+            violationsSummary: row[12] || "",
+            screenResolution: row[13] || "-",
+            userAgent: row[14] || "-",
+            syncStatus: "synced"
+          });
+        }
+      }
+    }
+
+    var heartbeats = {};
+    if (sheetMon) {
+      var mData = sheetMon.getDataRange().getValues();
+      for (var j = 1; j < mData.length; j++) {
+        var mRow = mData[j];
+        if (mRow[0]) {
+          var mNisn = String(mRow[0]).replace(/^'/, "");
+          heartbeats[mNisn] = {
+            studentId: String(mRow[1]).replace(/^'/, ""),
+            nisn: mNisn,
+            nipd: String(mRow[1]).replace(/^'/, ""),
+            nama: mRow[2],
+            rombel: mRow[3],
+            progressPercent: Number(mRow[4]) || 0,
+            answeredCount: Number(mRow[5]) || 0,
+            violationCount: Number(mRow[6]) || 0,
+            lastViolation: mRow[7] || "",
+            lastActive: new Date().toISOString(),
+            status: mRow[9] || "active"
+          };
+        }
+      }
+    }
+
+    return createJsonResponse({
+      status: "success",
+      totalSubmissions: submissions.length,
+      submissions: submissions,
+      heartbeats: heartbeats,
+      timestamp: new Date().toISOString()
+    });
+  }
+
   return createJsonResponse({
     status: "online",
     school: "SMK NEGERI 2 GORONTALO",

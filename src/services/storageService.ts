@@ -4,6 +4,7 @@ import { Student } from '../data/studentsData';
 const KEYS = {
   APPS_SCRIPT_URL: 'cbt_apps_script_url_v1',
   ADMIN_PIN: 'cbt_admin_pin_v1',
+  EXAM_TOKEN: 'cbt_exam_token_v1',
   SUBMISSIONS: 'cbt_submissions_v1',
   PENDING_QUEUE: 'cbt_pending_queue_v1',
   ACTIVE_SESSION: 'cbt_active_session_v1',
@@ -43,6 +44,30 @@ export const StorageService = {
 
   setAdminPin(pin: string): void {
     localStorage.setItem(KEYS.ADMIN_PIN, pin);
+  },
+
+  // Exam Token Management
+  getExamToken(): string {
+    return (localStorage.getItem(KEYS.EXAM_TOKEN) || 'TKA2026').toUpperCase().trim();
+  },
+
+  setExamToken(token: string): void {
+    localStorage.setItem(KEYS.EXAM_TOKEN, token.toUpperCase().trim());
+  },
+
+  generateRandomToken(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let res = '';
+    for (let i = 0; i < 6; i++) {
+      res += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    this.setExamToken(res);
+    return res;
+  },
+
+  verifyExamToken(inputToken: string): boolean {
+    if (!inputToken) return false;
+    return inputToken.trim().toUpperCase() === this.getExamToken();
   },
 
   // Active student in-progress session

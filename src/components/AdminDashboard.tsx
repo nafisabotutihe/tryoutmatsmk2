@@ -25,7 +25,10 @@ import {
   Check,
   X,
   KeyRound,
-  Lock
+  Lock,
+  Copy,
+  Sparkles,
+  Edit3
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -36,7 +39,7 @@ interface AdminDashboardProps {
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenGuide }) => {
   const [activeTab, setActiveTab] = useState<'monitoring' | 'deviceLogs' | 'sheets' | 'export'>('monitoring');
   const [selectedRombel, setSelectedRombel] = useState<string>('ALL');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'SUBMITTED' | 'NOT_STARTED' | 'VIOLATION'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'SUBMITTED' | 'NOT_STARTED' | 'VIOLATION' | 'VIOLATION_3PLUS'>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Local storage state
@@ -55,6 +58,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
   const [newPin, setNewPin] = useState<string>('');
   const [pinChangeMsg, setPinChangeMsg] = useState<string>('');
 
+  // Exam Token state
+  const [examToken, setExamToken] = useState<string>(StorageService.getExamToken());
+  const [copiedToken, setCopiedToken] = useState<boolean>(false);
+  const [isEditingToken, setIsEditingToken] = useState<boolean>(false);
+  const [customTokenInput, setCustomTokenInput] = useState<string>('');
+  const [tokenFeedbackMsg, setTokenFeedbackMsg] = useState<string>('');
+
+  // Spreadsheet download sync state
+  const [isFetchingSheet, setIsFetchingSheet] = useState<boolean>(false);
+  const [fetchSheetMsg, setFetchSheetMsg] = useState<{ success?: boolean; text: string } | null>(null);
+
   // Selected student for detail modal
   const [selectedStudentDetail, setSelectedStudentDetail] = useState<{
     student: Student;
@@ -69,12 +83,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
     setHeartbeats(StorageService.getHeartbeats());
     setDeviceLogs(StorageService.getDeviceLogs());
     setScriptUrl(StorageService.getAppsScriptUrl());
+    setExamToken(StorageService.getExamToken());
   };
 
+  // Unduh & sinkronkan data hasil ujian dari Google Spreadsheet
+  const handleSyncFromSpreadsheet = async (isInitial = false) => {
+    if (isFetchingSheet) return;
+    setIsFetchingSheet(true);
+    if (!isInitial) {
+      setFetchSheetMsg({ text: 'Menghubungkan ke Google Spreadsheet & mengunduh data...' });
+    }
+
+    const res = await SheetService.fetchDataFromSpreadsheet();
+    setIsFetchingSheet(false);
+    refreshData();
+
+    if (!isInitial || (res.success && (res.submissionsCount || 0) > 0)) {
+      setFetchSheetMsg({
+        success: res.success,
+        text: res.message
+      });
+      setTimeout(() => setFetchSheetMsg(null), 6000);
+    }
+  };
+
+  // Sinkron otomatis pada dashboard pengawas HANYA saat aplikasi pertama kali ter-load
   useEffect(() => {
     refreshData();
-    const interval = setInterval(refreshData, 3000);
-    return () => clearInterval(interval);
+    handleSyncFromSpreadsheet(true);
   }, []);
 
   // Filter students
@@ -99,13 +135,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
       const isSubmitted = !!sub;
       const isActive = !isSubmitted && !!hb;
       const isNotStarted = !isSubmitted && !hb;
-      const hasViolation = (sub && sub.violationCount > 0) || (hb && hb.violationCount > 0);
+      const violationCount = sub ? sub.violationCount : (hb ? hb.violationCount : 0);
+      const hasViolation = violationCount > 0;
+      const has3PlusViolation = violationCount >= 3;
 
       // Status filter
       if (statusFilter === 'SUBMITTED' && !isSubmitted) return false;
       if (statusFilter === 'ACTIVE' && !isActive) return false;
       if (statusFilter === 'NOT_STARTED' && !isNotStarted) return false;
       if (statusFilter === 'VIOLATION' && !hasViolation) return false;
+      if (statusFilter === 'VIOLATION_3PLUS' && !has3PlusViolation) return false;
 
       return true;
     });
@@ -129,6 +168,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
         .filter((h) => !submissions.some((s) => s.nisn === h.nisn))
         .reduce((sum, h) => sum + (h.violationCount || 0), 0);
 
+    const studentsWith3PlusViolations = STUDENTS_DATA.filter((s) => {
+      const sub = submissions.find((subItem) => subItem.nisn === s.nisn);
+      const hb = heartbeats[s.nisn];
+      const count = sub ? sub.violationCount : (hb ? hb.violationCount : 0);
+      return count >= 3;
+    }).length;
+
     const averageScore = submittedCount > 0
       ? Math.round(submissions.reduce((sum, s) => sum + s.score, 0) / submittedCount)
       : 0;
@@ -139,6 +185,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
       activeCount,
       notStartedCount,
       violationTotal,
+      studentsWith3PlusViolations,
       averageScore
     };
   }, [submissions, heartbeats]);
@@ -178,6 +225,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
     setPinChangeMsg('PIN Pengawas berhasil diperbarui!');
     setNewPin('');
     setTimeout(() => setPinChangeMsg(''), 4000);
+  };
+
+  // Exam Token Actions
+  const handleResetRandomToken = () => {
+    if (confirm('Yakin ingin mereset/mengacak Token Ujian baru? Siswa yang belum login harus memasukkan token baru ini.')) {
+      const nextToken = StorageService.generateRandomToken();
+      setExamToken(nextToken);
+      setTokenFeedbackMsg(`Token ujian berhasil diacak ke: ${nextToken}`);
+      setTimeout(() => setTokenFeedbackMsg(''), 5000);
+    }
+  };
+
+  const handleSaveCustomToken = () => {
+    if (!customTokenInput.trim()) return;
+    const nextToken = customTokenInput.trim().toUpperCase();
+    StorageService.setExamToken(nextToken);
+    setExamToken(nextToken);
+    setIsEditingToken(false);
+    setCustomTokenInput('');
+    setTokenFeedbackMsg(`Token manual berhasil disimpan: ${nextToken}`);
+    setTimeout(() => setTokenFeedbackMsg(''), 5000);
+  };
+
+  const handleCopyToken = () => {
+    try {
+      navigator.clipboard.writeText(examToken);
+      setCopiedToken(true);
+      setTimeout(() => setCopiedToken(false), 2500);
+    } catch {
+      // fallback
+    }
   };
 
   // Admin Reset Student
@@ -291,6 +369,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
 
           {/* Quick Action Buttons */}
           <div className="flex items-center gap-2">
+            {/* Tombol Sinkronisasi Unduh Data Dari Spreadsheet */}
+            <button
+              onClick={() => handleSyncFromSpreadsheet(false)}
+              disabled={isFetchingSheet}
+              className="px-3.5 py-1.5 bg-blue-600/30 hover:bg-blue-600/40 text-blue-200 border border-blue-500/40 rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+              title="Unduh dan sinkronkan data jawaban peserta langsung dari Google Spreadsheet"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-blue-400 ${isFetchingSheet ? 'animate-spin' : ''}`} />
+              <span>{isFetchingSheet ? 'Mengunduh...' : 'Sinkron Dari Spreadsheet'}</span>
+            </button>
+
             <button
               onClick={onOpenGuide}
               className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
@@ -302,7 +391,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
             <button
               onClick={refreshData}
               className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs transition"
-              title="Perbarui Data"
+              title="Perbarui Data Lokal"
             >
               <RefreshCw className="w-4 h-4" />
             </button>
@@ -319,6 +408,136 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
 
       {/* Main Content */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+        {/* Notifikasi Sinkronisasi Spreadsheet */}
+        {fetchSheetMsg && (
+          <div className={`p-3.5 rounded-2xl text-xs flex items-center justify-between border animate-in fade-in duration-200 shadow-xl ${
+            fetchSheetMsg.success
+              ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-200'
+              : 'bg-rose-950/90 border-rose-500/50 text-rose-200'
+          }`}>
+            <div className="flex items-center gap-2.5">
+              {fetchSheetMsg.success ? (
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+              )}
+              <span className="font-semibold">{fetchSheetMsg.text}</span>
+            </div>
+            <button
+              onClick={() => setFetchSheetMsg(null)}
+              className="p-1 rounded-lg text-slate-400 hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Token Management Banner (Pengawas Ruang) */}
+        <div className="bg-gradient-to-r from-blue-950/70 via-slate-900 to-indigo-950/70 border border-blue-500/40 rounded-2xl p-4 sm:p-5 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2.5 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30">
+                <KeyRound className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                  <span>Token Ujian Aktif (Ruang Ujian)</span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono font-bold">
+                    AKTIF
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-300">
+                  Siswa wajib memasukkan token ini saat membuka lembar ujian. Token dapat direset atau diganti sewaktu-waktu.
+                </p>
+              </div>
+            </div>
+            {tokenFeedbackMsg && (
+              <div className="text-xs text-emerald-400 font-medium flex items-center gap-1.5 pt-1 animate-in fade-in">
+                <Check className="w-3.5 h-3.5" />
+                <span>{tokenFeedbackMsg}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Token Display & Actions */}
+          <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+            {isEditingToken ? (
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <input
+                  type="text"
+                  value={customTokenInput}
+                  onChange={(e) => setCustomTokenInput(e.target.value.toUpperCase())}
+                  placeholder="Ketik token baru"
+                  maxLength={16}
+                  className="px-3.5 py-2 bg-slate-950 border border-blue-500 rounded-xl text-sm font-mono font-bold tracking-widest text-white uppercase focus:outline-none"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveCustomToken}
+                  disabled={!customTokenInput.trim()}
+                  className="px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Simpan</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingToken(false);
+                    setCustomTokenInput('');
+                  }}
+                  className="px-2.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <>
+                <div
+                  onClick={handleCopyToken}
+                  title="Klik untuk menyalin token ujian"
+                  className="cursor-pointer group flex items-center gap-3 px-4 py-2.5 bg-slate-950 border border-amber-500/50 hover:border-amber-400 rounded-xl shadow-inner transition active:scale-95"
+                >
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">TOKEN:</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono tracking-widest text-amber-300">
+                    {examToken}
+                  </span>
+                  <button
+                    type="button"
+                    className="p-1 rounded text-slate-400 group-hover:text-amber-300 transition"
+                  >
+                    {copiedToken ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleResetRandomToken}
+                  className="px-3.5 py-2.5 bg-indigo-600/30 hover:bg-indigo-600/40 text-indigo-200 border border-indigo-500/40 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+                  title="Acak dan buat token baru secara otomatis"
+                >
+                  <Sparkles className="w-4 h-4 text-indigo-400" />
+                  <span>Acak / Reset Token</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingToken(true);
+                    setCustomTokenInput(examToken);
+                  }}
+                  className="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+                  title="Ubah token secara manual sesuai keinginan"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="hidden sm:inline">Ubah Manual</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
         {/* Metric Cards Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {/* Card 1: Total Peserta */}
@@ -368,7 +587,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
               <ShieldAlert className="w-4 h-4 text-rose-400" />
             </div>
             <div className="text-2xl font-black text-rose-400">{stats.violationTotal}</div>
-            <div className="text-[10px] text-rose-300/80 mt-1">Insiden tercatat</div>
+            <div className="text-[10px] text-rose-300/80 mt-1">
+              {stats.studentsWith3PlusViolations > 0 ? (
+                <span className="text-rose-400 font-bold">
+                  {stats.studentsWith3PlusViolations} siswa ≥ 3x (Waspada)
+                </span>
+              ) : (
+                'Insiden tercatat'
+              )}
+            </div>
           </div>
 
           {/* Card 6: Rata-rata Nilai (Admin Only) */}
@@ -483,6 +710,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
                   <option value="SUBMITTED">Sudah Selesai</option>
                   <option value="NOT_STARTED">Belum Mulai</option>
                   <option value="VIOLATION">Ada Pelanggaran</option>
+                  <option value="VIOLATION_3PLUS">🚨 Pelanggaran ≥ 3x (Waspada)</option>
                 </select>
               </div>
             </div>
@@ -514,12 +742,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
                         const answered = sub ? sub.answeredCount : (hb ? hb.answeredCount : 0);
                         const progressPct = Math.round((answered / 25) * 100);
                         const violationsCount = sub ? sub.violationCount : (hb ? hb.violationCount : 0);
+                        const isHighViolation = violationsCount >= 3;
 
                         return (
-                          <tr key={s.nisn} className="hover:bg-slate-800/40 transition">
+                          <tr
+                            key={s.nisn}
+                            className={`transition ${
+                              isHighViolation
+                                ? 'bg-rose-950/25 border-l-4 border-l-rose-500 hover:bg-rose-950/40'
+                                : 'hover:bg-slate-800/40'
+                            }`}
+                          >
                             <td className="p-3 text-center font-mono text-slate-500">{idx + 1}</td>
                             <td className="p-3">
-                              <div className="font-semibold text-white">{s.nama}</div>
+                              <div className="font-semibold text-white flex items-center gap-1.5">
+                                <span>{s.nama}</span>
+                                {isHighViolation && (
+                                  <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded text-[9px] font-bold uppercase animate-pulse">
+                                    ≥3x
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-[11px] text-slate-400 font-mono">
                                 NISN: {s.nisn} • NIPD: {s.nipd} ({s.jk})
                               </div>
@@ -570,7 +813,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
                               )}
                             </td>
                             <td className="p-3 text-center">
-                              {violationsCount > 0 ? (
+                              {isHighViolation ? (
+                                <span
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-rose-600/30 text-rose-200 border border-rose-500 text-xs font-black animate-pulse shadow-md shadow-rose-950"
+                                  title="Peringatan Pengawas: Siswa ini telah melanggar 3 kali atau lebih! Soal tetap dapat dikerjakan siswa."
+                                >
+                                  <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                                  <span>{violationsCount}x (WASPADA)</span>
+                                </span>
+                              ) : violationsCount > 0 ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-bold">
                                   <ShieldAlert className="w-3.5 h-3.5" />
                                   {violationsCount}
@@ -736,6 +987,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
                   <span>{testResult.message}</span>
                 </div>
               )}
+            </div>
+
+            {/* Unduh Data Dari Google Spreadsheet */}
+            <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                    <Download className="w-4 h-4 text-blue-400" />
+                    <span>Sinkronisasi Unduh Data Dari Spreadsheet</span>
+                  </h4>
+                  <p className="text-xs text-slate-400">
+                    Tarik dan unduh seluruh data lembar jawaban siswa yang tersimpan di Google Spreadsheet ke dashboard pengawas ini.
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleSyncFromSpreadsheet(false)}
+                  disabled={isFetchingSheet}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition shrink-0"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isFetchingSheet ? 'animate-spin' : ''}`} />
+                  <span>{isFetchingSheet ? 'Sedang Mengunduh...' : 'Unduh Data Dari Spreadsheet'}</span>
+                </button>
+              </div>
             </div>
 
             {/* Offline Queue Handler */}
@@ -913,6 +1187,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, onOpenG
                 </strong>
               </div>
             </div>
+
+            {/* High Violations Alert Notice */}
+            {((selectedStudentDetail.submission?.violationCount || selectedStudentDetail.heartbeat?.violationCount || 0) >= 3) && (
+              <div className="p-3.5 bg-rose-950/70 border border-rose-500 rounded-2xl text-rose-200 text-xs flex items-start gap-3 shadow-lg animate-in fade-in">
+                <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5 animate-pulse" />
+                <div className="space-y-1">
+                  <div className="font-bold text-rose-200 uppercase tracking-wide">
+                    Peringatan Pengawas: Terdeteksi {selectedStudentDetail.submission?.violationCount || selectedStudentDetail.heartbeat?.violationCount || 0}x Pelanggaran
+                  </div>
+                  <p className="text-[11px] text-rose-300/90 leading-relaxed">
+                    Sesuai ketentuan, soal ujian siswa <strong>tidak dikunci</strong> agar siswa tetap dapat menyelesaikan ujian. Seluruh log kejadian di bawah ini tervalidasi real-time untuk pertimbangan berita acara pengawas.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Violations List */}
             <div>

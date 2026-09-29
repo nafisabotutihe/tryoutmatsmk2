@@ -39,18 +39,24 @@ Aplikasi Computer-Based Testing (CBT) Try Out TKA Matematika SMK Negeri 2 Goront
    - Siswa menerima bukti tanda terima digital resmi tanpa bocoran jawaban, sehingga tidak dapat disebarkan ke siswa lain.
    - Skor dan kunci hanya dapat diakses oleh Pengawas melalui Dashboard Admin.
 
-6. **Sistem Keamanan Anti-Kecurangan Modern**:
+6. **Sistem Keamanan Anti-Kecurangan & Kebijakan Ujian**:
    - **Mode Layar Penuh (Fullscreen Enforcement)**: Otomatis meminta fullscreen dan memperingatkan saat siswa keluar.
    - **Deteksi Pindah Tab & Buka Aplikasi Lain**: Mendeteksi `visibilitychange` dan `window.blur`.
    - **Deteksi Percobaan Rekam Layar / Split Screen**: Mendeteksi perubahan ukuran layar mendadak dan shortcut perekaman.
    - **Watermark Dinamis Anti-Foto Layar**: Layar dihiasi watermark transparan Nama & NISN siswa secara diagonal untuk mencegah siswa memfoto layar dengan HP lain.
+   - **Kebijakan Pelanggaran 3x atau Lebih**: **Soal TIDAK AKAN TERKUNCI** (siswa tetap dapat menyelesaikan ujian sampai tuntas tanpa terputus), namun seluruh catatan kecurangan langsung terdeteksi dengan status WASPADA (badge merah berkedip) di Dashboard Pengawas dan Google Spreadsheet.
    - **Blokir Pintasan Terlarang**: Mencegah klik kanan, salin/tempel (copy/paste), F12, Inspect Element, dan PrintScreen.
-   - Setiap pelanggaran dilaporkan secara *real-time* ke Pengawas dan Google Spreadsheet.
 
-7. **Dashboard Pengawas & Monitoring Real-Time**:
-   - Login Pengawas dengan PIN (Default: `admin123`).
-   - Kartu statistik langsung: Total Siswa, Sedang Mengerjakan, Sudah Selesai, Belum Mulai, Total Pelanggaran, Rerata Nilai.
-   - Tabel monitoring *progress bar* setiap siswa secara *live*.
+7. **Token Ujian & Kontrol Pengawas**:
+   - Siswa wajib memasukkan **Token Ujian** sebelum dapat memulai lembar soal.
+   - **Token dapat direset atau diubah kapan saja** oleh Pengawas langsung dari Dashboard Pengawas (tersedia tombol acak token otomatis dan ubah token manual).
+   - **Validasi Lengkap 25 Soal**: Siswa **tidak dapat menyelesaikan/mengumpulkan ujian** sebelum seluruh 25 nomor soal terjawab lengkap.
+   - **Tombol Sinkronisasi Unduh dari Spreadsheet**: Pengawas dapat mengunduh seluruh lembar jawaban siswa yang ada di Google Spreadsheet ke dashboard pengawas dengan 1 klik.
+   - **Sinkron Otomatis Hanya Saat Aplikasi Terload**: Dashboard pengawas hanya melakukan sinkronisasi otomatis satu kali saat halaman pertama kali dibuka (tanpa polling interval berkala).
+   - **Data di Spreadsheet Disimpan Permanen & Tidak Tertimpah**: Setiap pengumpulan lembar ujian di-append sebagai baris baru permanen di Google Spreadsheet sehingga riwayat tidak pernah tertimpa atau hilang.
+   - Login Pengawas dilindungi PIN: `MATEMATIKA123`.
+   - Kartu statistik langsung: Total Siswa, Sedang Mengerjakan, Sudah Selesai, Belum Mulai, Pelanggaran, Rerata Nilai.
+   - Filter khusus siswa dengan pelanggaran $\ge$ 3x.
    - Log aktivitas setiap perangkat peserta.
    - Fitur Reset / Izinkan Ujian Ulang jika ada siswa yang mengalami kendala teknis.
    - Ekspor Rekap Nilai ke format CSV / Excel sekali klik.

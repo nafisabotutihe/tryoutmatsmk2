@@ -218,5 +218,89 @@ export const SheetService = {
       }
     }
     return { processed: queue.length, succeeded };
+  },
+
+  // Download / Sync latest submissions and status from Google Spreadsheet
+  async fetchDataFromSpreadsheet(url?: string): Promise<{
+    success: boolean;
+    message: string;
+    submissionsCount?: number;
+  }> {
+    const targetUrl = url || StorageService.getAppsScriptUrl();
+    if (!targetUrl) {
+      return { success: false, message: 'URL Google Apps Script belum dikonfigurasi.' };
+    }
+
+    try {
+      const fetchUrl = targetUrl.includes('?')
+        ? `${targetUrl}&action=DOWNLOAD_DATA&_t=${Date.now()}`
+        : `${targetUrl}?action=DOWNLOAD_DATA&_t=${Date.now()}`;
+
+      const res = await fetch(fetchUrl, {
+        method: 'GET',
+        mode: 'cors'
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (data && data.submissions && Array.isArray(data.submissions)) {
+        let imported = 0;
+        data.submissions.forEach((item: any) => {
+          if (!item.nisn) return;
+          const sub: ExamSubmission = {
+            id: 'sub_' + item.nisn + '_' + (new Date(item.submittedAt).getTime() || Date.now()),
+            nama: item.nama || '',
+            rombel: item.rombel || '',
+            nipd: item.nipd || '',
+            nisn: item.nisn,
+            jk: item.jk || 'L',
+            score: Number(item.score) || 0,
+            rawEarned: Number(item.rawEarned) || Number(item.score) || 0,
+            totalQuestions: 25,
+            answeredCount: Number(item.answeredCount) || 25,
+            answers: {},
+            violations: [],
+            violationCount: Number(item.violationCount) || 0,
+            reason: item.reason || 'Selesai',
+            submittedAt: item.submittedAt || new Date().toISOString(),
+            durationUsedSeconds: Number(item.durationUsedSeconds) || 0,
+            userAgent: item.userAgent || '',
+            screenResolution: item.screenResolution || '',
+            syncStatus: 'synced'
+          };
+          StorageService.saveSubmission(sub);
+          StorageService.removeFromPendingQueue(item.nisn);
+          imported++;
+        });
+
+        if (data.heartbeats && typeof data.heartbeats === 'object') {
+          const currentHbs = StorageService.getHeartbeats();
+          Object.keys(data.heartbeats).forEach((k) => {
+            currentHbs[k] = data.heartbeats[k];
+          });
+          localStorage.setItem('cbt_live_heartbeats_v1', JSON.stringify(currentHbs));
+        }
+
+        return {
+          success: true,
+          message: `Berhasil mengunduh dan menyinkronkan ${imported} lembar ujian dari Google Spreadsheet.`,
+          submissionsCount: imported
+        };
+      }
+
+      return {
+        success: true,
+        message: 'Koneksi terhubung. Belum ada lembar ujian baru di Spreadsheet.',
+        submissionsCount: 0
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Tidak dapat mengunduh dari Spreadsheet: ${err.message || 'Koneksi gagal'}. Pastikan URL Apps Script aktif.`
+      };
+    }
   }
 };
